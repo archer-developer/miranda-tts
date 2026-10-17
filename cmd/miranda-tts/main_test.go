@@ -126,3 +126,50 @@ func TestServeUntilInterrupted_HTTPBindFailureStopsWyoming(t *testing.T) {
 		t.Fatal("did not return after http bind failure")
 	}
 }
+
+func TestServeUntilInterrupted_LongLivedConnectionDoesNotMakeShutdownFail(t *testing.T) {
+	old := shutdownTimeout
+	shutdownTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { shutdownTimeout = old })
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	wy, err := wyoming.NewServer("127.0.0.1:0", logger, noSynth{}, wyoming.Service{Voice: "v"})
+	require.NoError(t, err)
+
+	// Stands in for Miranda's persistent MCP stream: a request that never ends
+	// on its own.
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	started := make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/stream", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		close(started)
+		<-release
+	})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	httpServer := &http.Server{Addr: ln.Addr().String(), Handler: mux}
+	require.NoError(t, ln.Close())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- serveUntilInterrupted(ctx, httpServer, wy, logger) }()
+
+	var resp *http.Response
+	require.Eventually(t, func() bool {
+		resp, err = http.Get("http://" + httpServer.Addr + "/stream")
+		return err == nil
+	}, 2*time.Second, 20*time.Millisecond)
+	defer func() { _ = resp.Body.Close() }()
+	<-started
+
+	cancel()
+	select {
+	case err := <-done:
+		assert.NoError(t, err, "a stream that outlives the shutdown deadline must not turn the stop into a failure")
+	case <-time.After(5 * time.Second):
+		t.Fatal("shutdown did not finish")
+	}
+}

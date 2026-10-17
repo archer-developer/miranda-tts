@@ -45,10 +45,13 @@ const (
 	dotEnvPath       = ".env"
 	defaultConfigDir = "config"
 	configDirEnv     = "MIRANDA_TTS_CONFIG_DIR"
-	shutdownTimeout  = 10 * time.Second
 	debugLogDir      = "logs"
 	debugLogFile     = "debug.log"
 )
+
+// shutdownTimeout bounds how long the HTTP server may take to drain on
+// shutdown. A var so tests can shorten it.
+var shutdownTimeout = 10 * time.Second
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -239,8 +242,12 @@ func serveUntilInterrupted(ctx context.Context, httpServer *http.Server, wyoming
 	cancel()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
-	if err := httpServer.Shutdown(shutdownCtx); err != nil && firstErr == nil {
-		firstErr = err
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		// Miranda holds a long-lived MCP stream open, which graceful shutdown
+		// would wait on forever. Past the deadline just cut the stragglers
+		// off: that is a normal stop, not a failure worth exiting non-zero.
+		logger.Warn("graceful http shutdown timed out, closing remaining connections", "error", err)
+		_ = httpServer.Close()
 	}
 	// Each listener goroutine reports exactly once; wait for the rest.
 	for ; received < 2; received++ {
