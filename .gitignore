@@ -1,0 +1,13 @@
+.env
+.idea
+dist/
+data/
+logs/
+bin/
+/miranda-tts
+
+# Real config files are environment-specific and may carry deployment
+# details; only the documented, generic config.yaml.dist template is
+# checked in. This pattern only matches "*.yaml" exactly, so it does not
+# ignore config.yaml.dist itself.
+config/*.yaml

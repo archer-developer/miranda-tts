@@ -1,0 +1,77 @@
+# miranda-tts configuration template.
+#
+# This .dist file documents every available field with its built-in default
+# (see internal/config.Default()) and is checked into git; it is never
+# loaded directly. To configure a real deployment, copy it to
+# config/config.yaml (or split it into several config/*.yaml files) and edit
+# only what needs to differ — every config/*.yaml file is gitignored except
+# this one. Full merge semantics (which files get loaded, in what order, how
+# they combine): see internal/config's package doc comment and
+# cmd/miranda-tts/main.go's configFilePaths.
+#
+# Secrets themselves never go in a config file, this one included — only the
+# *name* of an environment variable to read them from at startup (fields
+# ending in _env / _envs). See .env.example.
+
+# HTTP listener: /healthz, the bearer-gated /mcp endpoint (speak/stop tools)
+# and the unauthenticated GET /audio/{filename} route media players fetch
+# rendered clips from.
+http_addr: ":8794"
+
+# Name of the environment variable holding the shared bearer token MCP
+# clients (Miranda) must present to call /mcp. The service refuses to start
+# if this env var is unset or empty.
+auth_token_env: "MIRANDA_TTS_MCP_TOKEN"
+
+# Wyoming TCP listener. In Home Assistant add the built-in "Wyoming
+# Protocol" integration pointing at this host:port; it creates the tts.*
+# entity to select as the Assist pipeline's text-to-speech engine.
+wyoming_addr: ":10400"
+
+# Names of environment variables, each holding one Gemini API key. Keys are
+# rotated on quota / overload errors, and a key that failed is skipped for
+# quota_ban_minutes / overload_ban_minutes.
+gemini_api_key_envs: ["GEMINI_API_KEY_1"]
+
+# Speech-synthesis model id. gemini-3.8-flash-lite-tts is the fast/cheap
+# default; gemini-3.8-flash-tts is the higher-quality alternative.
+gemini_model: "gemini-3.8-flash-lite-tts"
+
+# Default prebuilt voice (e.g. Kore, Puck, Charon, Zephyr, Fenrir, Leda).
+# This is also the voice Home Assistant sees on describe.
+gemini_voice: "Kore"
+
+# Languages advertised to Home Assistant for the voice.
+languages: ["ru", "en", "de", "fr", "es", "it", "pt", "uk", "pl", "tr", "ja", "ko", "zh"]
+
+# --- media_player playback (the speak MCP tool) -----------------------------
+
+# Upper bound for one synthesis request; several short sentences are packed
+# into one chunk, since each request is a real, quota-limited API call.
+chunk_max_chars: 200
+
+# How a media_player (e.g. Yandex Station) reaches this service's /audio
+# route. Must be a LAN-reachable URL; required for media_player.* targets.
+# public_base_url: "http://192.168.1.94:8794"
+
+# Rendered clips, content-addressed and never evicted (a cache hit skips a
+# quota-limited API call).
+audio_cache_dir: "data/audio-cache"
+
+# --- Gemini request tuning ---------------------------------------------------
+
+request_timeout_seconds: 60
+# Sleep between full passes over the key list when every key failed.
+quota_cooldown_seconds: 5
+max_quota_retry_cycles: 2
+quota_ban_minutes: 30
+overload_ban_minutes: 30
+# A key that does not send response headers within this window counts as
+# overloaded.
+overload_response_timeout_seconds: 15
+
+logging:
+  # One of "debug", "info", "warn", "error". At "debug", verbose per-request
+  # logs are routed to logs/debug.log instead of stdout, to avoid flooding
+  # the systemd journal — see cmd/miranda-tts/main.go's buildLogger.
+  level: "info"
