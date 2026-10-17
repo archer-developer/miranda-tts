@@ -11,3 +11,5 @@ bin/
 # checked in. This pattern only matches "*.yaml" exactly, so it does not
 # ignore config.yaml.dist itself.
 config/*.yaml
+# macOS Finder metadata
+.DS_Store
